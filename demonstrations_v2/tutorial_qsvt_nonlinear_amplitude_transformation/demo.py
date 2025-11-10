@@ -1,30 +1,49 @@
-r"""
-Nonlinear Transformation of Complex Amplitudes via Quantum Singular Value Transformation
-======================================================================================
+r"""Nonlinear Transformation of Complex Amplitudes via Quantum Singular Value Transformation
+========================================================================================
 
-.. meta::
-    :property="og:description": Learn how to implement nonlinear functions of quantum amplitudes using Quantum Singular Value Transformation (QSVT) and block-encoding.
+Quantum mechanics is inherently linear: unitary operations act linearly on state amplitudes, and
+measurement is the only source of nonlinearity. Nevertheless, many useful algorithms – such as
+neural networks – rely on nonlinear functions. The recent work by Guo, Mitarai and Fujii (2024) [#nlat]_
+introduces **nonlinear transformation of complex amplitudes (NTCA)**, a task where a quantum circuit
+transforms the amplitudes :math:`c_k = x_k + i y_k` of a state :math:`\sum_k c_k\,|k\rangle` into
+new amplitudes :math:`P(x_k)+Q(y_k)` defined by real‐valued functions :math:`P, Q`. The authors show
+how to achieve NTCA using a combination of *block‐encoding of amplitudes* and **quantum singular
+value transformation (QSVT)**, exploiting post‐selection to realise a nonlinear map while
+maintaining overall unitary evolution.
 
-.. related::
-    tutorial_intro_qsvt Introduction to QSVT
-
-Quantum mechanics is inherently linear: unitary operations act linearly on state amplitudes, and measurement is the only source of nonlinearity. Nevertheless, many useful algorithms – such as neural networks – rely on nonlinear functions. The recent work by Guo, Mitarai and Fujii [#guo2024]_ introduces **nonlinear transformation of complex amplitudes (NTCA)**, a task where a quantum circuit transforms the amplitudes :math:`c_k = x_k + i y_k` of a state :math:`\sum_k c_k\,|k\rangle` into new amplitudes :math:`P(x_k)+Q(y_k)` defined by real‐valued functions :math:`P, Q`. The authors show how to achieve NTCA using a combination of *block‐encoding of amplitudes* and **quantum singular value transformation (QSVT)**, exploiting post‐selection to realise a nonlinear map while maintaining overall unitary evolution.
-
-In this demo we first explain how amplitudes are embedded into a Hermitian block so that their real and imaginary parts can be accessed, and then briefly review QSVT. The second part uses this machinery to build a simple quantum classifier that acts nonlinearly on encoded data via NTCA.
-
-Toy dataset and linear-classifier baseline
-*****************************************
-
-**Data shape.** Inputs :math:`x \in [-1,1]`. Labels :math:`y=1` when :math:`|x|>0.4`, otherwise :math:`y=0`. Thus the positive class consists of two disjoint intervals :math:`[-1,-0.4)\cup(0.4,1]`.
-
-**Why linear fails.** A one–dimensional linear classifier with a monotonic link (e.g. logistic :math:`\sigma(ax+b)`) can implement only a single threshold. Its decision region for class 1 is a connected interval of the form :math:`(-\infty,t)` or :math:`(t,\infty)`. Our target region is disconnected, so no single linear threshold can capture both positive lobes.
-
-**Empirical confirmation.** We search the midpoints between our sample points for the best single threshold, trying both orientations. Even the optimal 1D threshold misclassifies several of the twenty samples. The mismatch is geometric, not due to poor parameter tuning.
-
-**Where nonlinearity enters the chat.** Introducing a nonlinear feature map :math:`f(x)` or a saturating activation on quantum amplitudes allows us to carve out multiple intervals. In the NTCA/QSVT construction, a two–block circuit with nonlinear activations acts like two concatenated thresholds, perfectly fitting this dataset.
-
-**Narrative fit.** The two subplots below illustrate the need for nonlinearity. The first shows the target labels and boundaries at :math:`\pm 0.4`, and the second shows the best linear–threshold classifier’s predictions and misclassifications. This sets the stage for using NTCA, which constructs physically meaningful nonlinearities to implement the desired two–interval decision boundary.
+In this demo we first explain how amplitudes are embedded into a Hermitian block so that their real
+and imaginary parts can be accessed, and then briefly review QSVT. The second part uses this
+machinery to build a simple quantum classifier that acts nonlinearly on encoded data via NTCA.
 """
+
+######################################################################
+# Toy dataset and linear-classifier baseline
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 
+# **Data shape.** Inputs :math:`x \in [-1,1]`. Labels :math:`y=1` when :math:`|x|>0.4`, otherwise
+# :math:`y=0`. Thus the positive class consists of two disjoint intervals
+# :math:`[-1,-0.4)\cup(0.4,1]`.
+# 
+# **Why linear fails.** A one–dimensional linear classifier with a monotonic link (e.g. logistic
+# :math:`\sigma(ax+b)`) can implement only a single threshold. Its decision region for class :math:`1`
+# is a connected interval of the form :math:`(-\infty,t)` or :math:`(t,\infty)`. Our target region is
+# disconnected, so no single linear threshold can capture both positive lobes.
+# 
+# **Empirical confirmation.** We search the midpoints between our sample points for the best single
+# threshold, trying both orientations. Even the optimal 1D threshold misclassifies several of the
+# twenty samples. The mismatch is geometric, not due to poor parameter tuning.
+# 
+# **Where nonlinearity enters the chat.** Introducing a nonlinear feature map :math:`f(x)` or a
+# saturating activation on quantum amplitudes allows us to carve out multiple intervals. In the
+# NTCA/QSVT construction, a two–block circuit with nonlinear activations acts like two concatenated
+# thresholds, perfectly fitting this dataset.
+# 
+# **Narrative fit.** The two subplots below illustrate the need for nonlinearity. The first shows the
+# target labels and boundaries at :math:`\pm 0.4`, and the second shows the best linear–threshold
+# classifier’s predictions and misclassifications. This sets the stage for using NTCA, which
+# constructs physically meaningful nonlinearities to implement the desired two–interval decision
+# boundary.
+# 
 
 # Visualize the toy dataset and the best linear-threshold classifier
 import numpy as np
@@ -81,36 +100,52 @@ axs[1].legend(loc='upper center', bbox_to_anchor=(0.5, -0.2), ncol=2)
 
 plt.show()
 
-##############################################################################
-#
-# 1. Block-encoding of amplitudes
+
+######################################################################
+# 1. Block‑encoding of amplitudes
 # -------------------------------
-#
-# To implement nonlinear functions of amplitudes, we first need to *extract* the real and imaginary parts of :math:`c_k` into the spectrum of a Hermitian operator. Suppose we have a state preparation oracle
-#
+# 
+# To implement nonlinear functions of amplitudes, we first need to *extract* the real and imaginary
+# parts of :math:`c_k` into the spectrum of a Hermitian operator. Suppose we have a state preparation
+# oracle
+# 
 # .. math::
-#
-#     U:|0\rangle \longmapsto \sum_{k=1}^N c_k\,|k\rangle.
-#
-# The goal is to construct a Hermitian matrix whose eigenvalues are :math:`\{x_k\}` or :math:`\{y_k\}`, where :math:`c_k=x_k+ i y_k`. Guo *et al.* [#guo2024]_ show that this can be done with a *block-encoding* :math:`\widetilde G` built from :math:`U` and its adjoint: the operator :math:`\widetilde G` acts on an expanded register of :math:`(2n+1)` qubits and satisfies
-#
+# 
+# 
+#    U:|0\rangle \longmapsto \sum_{k=1}^N c_k\,|k\rangle.
+# 
+# The goal is to construct a Hermitian matrix whose eigenvalues are :math:`\{x_k\}` or
+# :math:`\{y_k\}`, where :math:`c_k=x_k+ i y_k`. [#nlat]_ shows that this can be done with a
+# *block‑encoding* :math:`\widetilde G` built from :math:`U` and its adjoint: the operator
+# :math:`\widetilde G` acts on an expanded register of :math:`(2n+1)` qubits and satisfies
+# 
 # .. math::
-#
-#     (\langle 0| \otimes I_{2n+1})\, \widetilde G\,(|0\rangle\otimes I_{2n+1}) = \sum_{k=1}^N x_k\,|\phi_k\rangle\langle\phi_k| + \cdots,
-#
-# and similarly for :math:`\widetilde G'` encoding :math:`y_k`. The construction uses the following ingredients:
-#
-# * A *coherent walk* operator :math:`W` based on the state preparation unitary :math:`U`. In essence, :math:`W` prepares a superposition of the prepared state and the basis state :math:`|k\rangle`, storing the sum and difference in an ancilla qubit :math:`B`.
-# * A conditional phase shift :math:`S_0=I_{n+1}-2|0\rangle\langle 0|` acting on the data qubits and ancilla :math:`B`, and a Pauli–Z on :math:`B`.
-# * Combining these operations to form :math:`G := W S_0 W^\dagger Z_B`. The eigenvalues of :math:`G` have real part :math:`-x_k` and imaginary part :math:`\pm \sqrt{1-x_k^2}`. Taking the Hermitian part
-#
-# .. math::
-#
-#     \widetilde G = -\frac{1}{2}\big(G + G^\dagger\big)
-#
-# gives a Hermitian matrix with eigenvalues :math:`x_k`. One can perform an analogous construction with an additional :math:`S` gate in :math:`W` to obtain the imaginary part :math:`y_k`.
-#
-# Theorem 4 of Ref. [#guo2024]_ shows that :math:`\widetilde G` and :math:`\widetilde G'` are :math:`(1,1,0)`-block encodings of these diagonal matrices. Remarkably, they can be implemented with just four applications of :math:`U` and :math:`U^\dagger` and :math:`\mathcal{O}(n)` additional one- and two-qubit gates. We will now implement this block-encoding for a small example.
+# 
+#    (\langle 0| \otimes I_{2n+1})\, \widetilde G\,(|0\rangle\otimes I_{2n+1}) = \sum_{k=1}^N x_k\,|\phi_k\rangle\langle\phi_k| + \cdots,
+# 
+# and similarly for :math:`\widetilde G'` encoding :math:`y_k`. The construction uses the following
+# ingredients:
+# 
+# - A *coherent walk* operator :math:`W` based on the state preparation unitary :math:`U`. In essence,
+#   :math:`W` prepares a superposition of the prepared state and the basis state :math:`|k\rangle`,
+#   storing the sum and difference in an ancilla qubit :math:`B`.
+# - A conditional phase shift :math:`S_0=I_{n+1}-2|0\rangle\langle 0|` acting on the data qubits and
+#   ancilla :math:`B`, and a Pauli–Z on :math:`B`.
+# - Combining these operations to form :math:`G := W S_0 W^\dagger Z_B`. The eigenvalues of :math:`G`
+#   have real part :math:`-x_k` and imaginary part :math:`\pm \sqrt{1-x_k^2}`. Taking the Hermitian
+#   part
+# 
+#   .. math::  \widetilde G = -\frac{1}{2}\big(G + G^\dagger\big) 
+# 
+#   gives a Hermitian matrix with eigenvalues :math:`x_k`. One can perform an analogous construction
+#   with an additional :math:`S` gate in :math:`W` to obtain the imaginary part :math:`y_k`.
+# 
+# Theorem 4 of [#nlat]_ shows that :math:`\widetilde G` and :math:`\widetilde G'` are
+# :math:`(1,1,0)`-block encodings of these diagonal matrices. Remarkably, they can be implemented with
+# just four applications of :math:`U` and :math:`U^\dagger` and :math:`\mathcal{O}(n)` additional one‑
+# and two‑qubit gates. We will now implement this block‑encoding for a small example.
+# 
+
 
 # Necessary imports for the NTCA demo.
 import numpy as np
@@ -122,11 +157,10 @@ import matplotlib.pyplot as plt
 # Display version numbers
 print("PennyLane version:", qml.__version__)
 
-##############################################################################
-#
+
 
 # -----------------------------------------------------------------------------
-#  Implementation of the block‐encoding for real or imaginary
+#  Implementation of the block‑encoding for real or imaginary
 #  parts of amplitudes.
 
 # Controlled-Z on multiple controls.  control_values specify which bit value
@@ -177,7 +211,7 @@ def C_adj_to_data(wires):
         qml.Toffoli(wires=[wires[n], wires[i], wires[n+i+1]])
 
 # One step of the W operator.  If p_flag=1 an S gate is applied to the ancilla B
-# to pick up a phase for the imaginary part.
+# to pick up a phase for the imaginary part. 
 def W_block(base, wires, p_flag=0, *args, **kwargs):
     n = len(wires)//2
     B = wires[n]
@@ -200,7 +234,7 @@ def W_block_adj(base, wires, p_flag=0, *args, **kwargs):
     qml.Hadamard(wires=B)
 
 # G_block implements the operator G = W S0 W^† Z_B.  Its adjoint is defined
-# similarly.  See Eq. (9) of the Guo *et al.* (2024).
+# similarly.  See Eq. (9) of [#nlat]_.
 def G_block(base, wires, p_flag=0, *args, **kwargs):
     n = len(wires)//2
     qml.PauliZ(wires=wires[n])
@@ -237,11 +271,21 @@ def AmplitudeBlockEncoding(U_callable, wires, ancilla_wires, p_flag=0, *args, **
     # Clean up selector by conjugating with XZX
     qml.PauliX(wires=ancilla_wires[0]); qml.PauliZ(wires=ancilla_wires[0]); qml.PauliX(wires=ancilla_wires[0])
 
-##############################################################################
-#
-# The above code implements the block-encoding :math:`\widetilde G` for the real part of the amplitudes. For demonstrations, we want a spectrum of :math:`\mathrm{Re}(c_k)` values so the polynomial's effect is visible across the different basis states :math:`k`. A short, normalized vector with both real and imaginary entries, such as :math:`[0.4, 0.3, 0.2, 0.1, 0.15i, 0, 0, 0]`, is ideal. It creates a long-tail distribution while keeping :math:`|\mathrm{Re}(c_k)| \le 0.4`, which is safely inside the :math:`[-1,1]` range required for QSVT. We also need to specify the arrangement of qubits: for :math:`n` data qubits the ancilla register consists of a selector qubit, an :math:`n`-qubit address register, and a single ancilla :math:`B`. The total number of qubits is thus :math:`2n+2`.
-#
-# Below we create a simple block-encoding for :math:`n=3` and inspect its matrix to confirm that its eigenvalues correspond to the data amplitudes.
+
+######################################################################
+# The above code implements the block‑encoding :math:`\widetilde G` for the real part of the
+# amplitudes. For demonstrations, we want a spectrum of :math:`\mathrm{Re}(c_k)` values so the
+# polynomial’s effect is visible across the different basis states :math:`k`. A short, normalized
+# vector with both real and imaginary entries, such as :math:`[0.4, 0.3, 0.2, 0.1, 0.15i, 0, 0, 0]`,
+# is ideal. It creates a long-tail distribution while keeping :math:`|\mathrm{Re}(c_k)| \le 0.4`,
+# which is safely inside the :math:`[-1,1]` range required for QSVT. We also need to specify the
+# arrangement of qubits: for :math:`n` data qubits the ancilla register consists of a selector qubit,
+# an :math:`n`-qubit address register, and a single ancilla :math:`B`. The total number of qubits is
+# thus :math:`2n+2`.
+# 
+# Below we create a simple block‑encoding for :math:`n=3` and inspect its matrix to confirm that its
+# eigenvalues correspond to the data amplitudes.
+# 
 
 #------------- device -------------
 n_data = 3
@@ -279,10 +323,10 @@ def get_block_encoding_operator(state_vec_in,
     # U_data_prep is the 'base' callable passed to AmplitudeBlockEncoding.
     # wires are data_wires, ancilla_wires are ancilla_wires.
     return qml.prod(AmplitudeBlockEncoding)(U_data_prep,
-                            wires=data_wires,
-                            ancilla_wires=ancilla_wires,
-                            p_flag=p_flag, # p_flag=0 for real part
-                            state_vec=state_vec_in)
+                           wires=data_wires,
+                           ancilla_wires=ancilla_wires,
+                           p_flag=p_flag, # p_flag=0 for real part
+                           state_vec=state_vec_in)
 # --- Verification ---
 
 # 1. Get the matrix of the full unitary G_tilde
@@ -319,63 +363,80 @@ print(f"Unique eigenvalues found in H:")
 print(unique_simulated_eigenvalues)
 print("-" * 20)
 
-##############################################################################
-#
-
 @qml.qnode(dev)
 def get_block_encoding_qnode(state_vec_in):
     AmplitudeBlockEncoding(U_data_prep,
-                            wires=data_wires,
-                            ancilla_wires=ancilla_wires,
-                            p_flag=0, # p_flag=0 for real part
-                            state_vec=state_vec_in)
+                           wires=data_wires,
+                           ancilla_wires=ancilla_wires,
+                           p_flag=0, # p_flag=0 for real part
+                           state_vec=state_vec_in)
     return qml.state()
 
 qml.draw_mpl(get_block_encoding_qnode)(psi_data)
 
-##############################################################################
-#
+######################################################################
 # Resource analysis
-# *****************
-#
-# `qml.specs(get_block_encoding_qnode)(psi_data)` prints a **static resource summary** for the Amplitude Block Encoding call used in the real-only experiment.
-#
-# * `num_wires` / `num_device_wires` / `num_tape_wires`: how many qubits are in play (ancillas + DATA).
-# * `depth`: circuit depth at the current abstraction level.
-# * `shots`: `None` means **statevector** simulation; if you switch to a finite-shots device, specs will reflect sampling.
-# * `diff_method` / `gradient_fn`: how gradients would be computed if you trained parameters.
-#
-# **Reading specs**: for algorithmic understanding, the most meaningful items are the number of **ancillas** (`selector` + `address` + `signal` :math:`B`), and whether you are in **statevector** vs **shots** mode.
+# ~~~~~~~~~~~~~~~~~
+# 
+# ``qml.specs(get_block_encoding_qnode)(psi_data)`` prints a **static resource summary** for the
+# Amplitude Block Encoding call used in the real-only experiment.
+# 
+# - ``num_wires`` / ``num_device_wires`` / ``num_tape_wires``: how many qubits are in play (ancillas +
+#   DATA).
+# - ``depth``: circuit depth at the current abstraction level.
+# - ``shots``: ``None`` means **statevector** simulation; if you switch to a finite-shots device,
+#   specs will reflect sampling.
+# - ``diff_method`` / ``gradient_fn``: how gradients would be computed if you trained parameters.
+# 
+# **Reading specs**: for algorithmic understanding, the most meaningful items are the number of
+# **ancillas** (``selector`` + ``address`` + ``signal`` :math:`B`), and whether you are in
+# **statevector** vs **shots** mode.
+# 
 
 qml.specs(get_block_encoding_qnode)(psi_data)
 
-##############################################################################
-#
-# 1.2. From block-encoding to nonlinear functions via QSVT
+######################################################################
+# 1.2. From block‑encoding to nonlinear functions via QSVT
 # --------------------------------------------------------
-#
-# Once the real and imaginary parts of the amplitudes are available as the eigenvalues of Hermitian block-encoded matrices, one can apply **Quantum Singular Value Transformation (QSVT)** to implement polynomial functions of those eigenvalues. QSVT is a generalisation of Quantum Signal Processing and can apply any bounded polynomial :math:`P(x)` to the singular values of a block-encoded matrix by composing controlled reflections and single-qubit phase rotations. For more details about implementing polynomials of block-encoded
-# Hamiltonians, block-encoding operators, and rotation operators, see the
-# `Intro to QSVT
-# demo <https://pennylane.ai/qml/demos/tutorial_intro_qsvt>`_. Theorem 5 of Ref. [#guo2024]_ states that if :math:`P(x)` and :math:`Q(x)` can be approximated by degree-:math:`d` polynomials :math:`P'` and :math:`Q'` to precision :math:`\epsilon/(4N)`, then the NTCA task can be realised with
-#
-# * :math:`\mathcal{O}\big(d\,\gamma\,\sqrt{N} / \;\Vert P'(x_k)+Q'(y_k)\Vert_2\big)` applications of :math:`U` and :math:`U^\dagger`, and
-# * :math:`\mathcal{O}\big(nd\,\gamma\,\sqrt{N} / \;\Vert P'(x_k)+Q'(y_k)\Vert_2\big)` one- and two-qubit gates,
-#
-# where :math:`\gamma=\max_{x\in[-1,1]}\{|P(x)|,|Q(x)|\}`. Intuitively, the degree of the polynomial controls the accuracy of the nonlinearity and the cost of the QSVT sequence.
-#
-# In PennyLane, QSVT is implemented via `qml.QSVT`. Given a block-encoding and a list of phase angles returned by `qml.poly_to_angles`, the call
-#
-# .. code-block:: python
-#
-#     qml.QSVT(block_encoding, projectors)
-#
-# applies a sequence of reflections and controlled-phase rotations on the signal qubit that effects the polynomial transformation. The phase angles are computed from the Chebyshev expansion of the target function.
-#
-# We want a smooth, odd, saturating activation. We choose the *Chebyshev approximation* of :math:`\tanh(\alpha x)` on :math:`[-1, 1]`:
-# 1. Fit :math:`\tanh(\alpha x)` with a Chebyshev series of **odd degree** :math:`d`.
-# 2. Convert the Chebyshev series to the ordinary power basis to get coefficients :math:`P(x) = \sum_{k=0}^{d} P_k x^k`, then **zero out even coefficients** to enforce oddness.
-# 3. **Scale** the coefficients so that :math:`\max_{x \in [-1, 1]} |P(x)| \le \frac{1}{4}`.
+# 
+# Once the real and imaginary parts of the amplitudes are available as the eigenvalues of Hermitian
+# block‑encoded matrices, one can apply **Quantum Singular Value Transformation (QSVT)** to implement
+# polynomial functions of those eigenvalues. QSVT is a generalisation of Quantum Signal Processing and
+# can apply any bounded polynomial :math:`P(x)` to the singular values of a block‑encoded matrix by
+# composing controlled reflections and single‑qubit phase rotations. For more details about
+# implementing polynomials of block-encoded Hamiltonians, block-encoding operators, and rotation
+# operators, see the :doc:`demos/tutorial_intro_qsvt`.
+# Theorem 5 of [#nlat]_ states that if :math:`P(x)` and :math:`Q(x)` can be
+# approximated by degree‑\ :math:`d` polynomials :math:`P'` and :math:`Q'` to precision
+# :math:`\epsilon/(4N)`, then the NTCA task can be realised with
+# 
+# - :math:`\mathcal{O}\big(d\,\gamma\,\sqrt{N} / \;\Vert P'(x_k)+Q'(y_k)\Vert_2\big)` applications of
+#   :math:`U` and :math:`U^\dagger`, and
+# - :math:`\mathcal{O}\big(nd\,\gamma\,\sqrt{N} / \;\Vert P'(x_k)+Q'(y_k)\Vert_2\big)` one‑ and
+#   two‑qubit gates,
+# 
+# where :math:`\gamma=\max_{x\in[-1,1]}\{|P(x)|,|Q(x)|\}`. Intuitively, the degree of the polynomial
+# controls the accuracy of the nonlinearity and the cost of the QSVT sequence.
+# 
+# In PennyLane, QSVT is implemented via ``qml.QSVT``. Given a block‑encoding and a list of phase
+# angles returned by ``qml.poly_to_angles``, the call
+# 
+# .. code:: python
+# 
+#    qml.QSVT(block_encoding, projectors)
+# 
+# applies a sequence of reflections and controlled‐phase rotations on the signal qubit that effects
+# the polynomial transformation. The phase angles are computed from the Chebyshev expansion of the
+# target function.
+# 
+
+######################################################################
+# We want a smooth, odd, saturating activation. We choose the *Chebyshev approximation* of
+# :math:`\tanh(\alpha x)` on :math:`[-1, 1]`: 1. Fit :math:`\tanh(\alpha x)` with a Chebyshev series
+# of **odd degree** :math:`d`. 2. Convert the Chebyshev series to the ordinary power basis to get
+# coefficients :math:`P(x) = \sum_{k=0}^{d} P_k x^k`, then **zero out even coefficients** to enforce
+# oddness. 3. **Scale** the coefficients so that :math:`\max_{x \in [-1, 1]} |P(x)| \le \frac{1}{4}`.
+# 
 
 def build_poly(kind="tanh_cheb", deg=7, alpha=1.5, raw_coeffs=None, gridN=2001):
     assert (deg % 2 == 1) or (kind in ("linear","raw")), "Use odd degree for odd activations"
@@ -412,8 +473,6 @@ def target_complex(psi, P, Q):
 
 def tvd(a,b): return 0.5*np.sum(np.abs(a-b))
 
-##############################################################################
-#
 def bits_of(i, m): return [(i>>b)&1 for b in range(m)][::-1]
 
 def data_distribution(psi, ancilla_wires, n_data, require_B_zero=False, require_selector_zero=True):
@@ -441,9 +500,6 @@ def postselected_amps(psi, ancilla_wires, n_data, require_B_zero=True, require_s
             for b in bits[num_anc:]: k=(k<<1)|b
             a = psi[s]; amps[k]+=a; succ+=float(np.abs(a)**2)
     return amps, succ
-
-##############################################################################
-#
 
 # ------------- device -------------
 n_data = 3
@@ -501,43 +557,55 @@ plt.title(f"Real-only QSVT tanh-approx | TVD={tvd_val:.4f}")
 plt.legend()
 plt.show()
 
-##############################################################################
-#
+
+######################################################################
 # 2. Application: a two-block quantum classifier with nonlinear activations
 # -------------------------------------------------------------------------
-#
-# To showcase **NTCA as a genuine nonlinear activation layer** inside a *trainable* quantum model,
-# we now construct a small quantum neural network composed of **two stacked NTCA blocks** —
-# the quantum analogue of two :math:`\tanh` neurons in a classical MLP.
-#
+# 
+# | To showcase **NTCA as a genuine nonlinear activation layer** inside a *trainable* quantum model,
+# | we now construct a small quantum neural network composed of **two stacked NTCA blocks** —
+# | the quantum analogue of two :math:`\tanh` neurons in a classical MLP.
+# 
 # Instead of a fixed amplitude encoding, each block begins with a **parameterized embedding unitary**
-#
+# 
 # .. math::
-#
-#     U_{\text{embed}}(x; \theta_0, \phi_0)
-#
-# that learns how to map the classical input feature :math:`x` onto a quantum state.
-# Each NTCA block then applies its nonlinear transformation through block-encoding and QSVT, producing a learned “activation” in amplitude space.
-#
+# 
+# 
+#    U_{\text{embed}}(x; \theta_0, \phi_0)
+# 
+# | that learns how to map the classical input feature (x) onto a quantum state.
+# | Each NTCA block then applies its nonlinear transformation through block-encoding and QSVT,
+#   producing a learned “activation” in amplitude space.
+# 
 # The model contains **seven trainable parameters** in total:
-#
-# - **:math:`\theta_{0,1}, \phi_{0,1}` and :math:`\theta_{0,2}, \phi_{0,2}`** — parameters of the two embedding unitaries that learn distinct feature projections of the same input :math:`x`.
-# - **:math:`\theta_{\text{addr,1}}` and :math:`\theta_{\text{addr,2}}`** — pre-mix rotations on the address ancilla for each NTCA block, determining how the encoded amplitude is routed through the nonlinear layer.
-# - **:math:`\beta_{\text{post}}`** — a final post-rotation on the data qubit, serving as a learnable bias term in the readout stage.
-#
+# 
+# - **:math:`\theta_{0,1}, \phi_{0,1}` and :math:`\theta_{0,2}, \phi_{0,2}`** — parameters of the two
+#   embedding unitaries that learn distinct feature projections of the same input (x).
+# - **:math:`\theta_{\text{addr,1}}` and :math:`\theta_{\text{addr,2}}`** — pre-mix rotations on the
+#   address ancilla for each NTCA block, determining how the encoded amplitude is routed through the
+#   nonlinear layer.
+# - **:math:`\beta_{\text{post}}`** — a final post-rotation on the data qubit, serving as a learnable
+#   bias term in the readout stage.
+# 
 # Together, these form a *quantum two-layer perceptron*:
-#
+# 
 # .. math::
-#
-#     x
-#     \;\longrightarrow\;
-#     U_{\text{embed}}^{(1)}(x)
-#     \;\xrightarrow{\text{NTCA}}\;
-#     U_{\text{embed}}^{(2)}(x)
-#     \;\xrightarrow{\text{NTCA}}\;
-#     \text{measurement}.
-#
-# We train this model on a **one-dimensional binary classification dataset** where the positive class occupies two **disjoint regions** on the real line — an arrangement that cannot be represented by any single-layer (monotonic) model. The two NTCA activations allow the circuit to construct **two separate decision lobes** in amplitude space, illustrating how quantum nonlinearities can emulate the expressive power of multi-neuron classical networks while remaining fully coherent.
+# 
+# 
+#    x 
+#    \;\longrightarrow\;
+#    U_{\text{embed}}^{(1)}(x)
+#    \;\xrightarrow{\text{NTCA}}\;
+#    U_{\text{embed}}^{(2)}(x)
+#    \;\xrightarrow{\text{NTCA}}\;
+#    \text{measurement}.
+# 
+# We train this model on a **one-dimensional binary classification dataset** where the positive class
+# occupies two **disjoint regions** on the real line — an arrangement that cannot be represented by
+# any single-layer (monotonic) model. The two NTCA activations allow the circuit to construct **two
+# separate decision lobes** in amplitude space, illustrating how quantum nonlinearities can emulate
+# the expressive power of multi-neuron classical networks while remaining fully coherent.
+# 
 
 import pennylane as qml
 import pennylane.numpy as pnp
@@ -603,8 +671,6 @@ def predict_p1(x, params):
                 p1 += p[s]
     return p1/(succ + 1e-12)
 
-##############################################################################
-#
 
 # ---------- Dataset ----------
 X = pnp.linspace(-1.0, 1.0, 20)
@@ -638,8 +704,6 @@ for _ in trange(80, desc="Training 2-layer NTCA-QNN", ncols=70):
 
 p_after = [float(predict_p1(float(xi), params)) for xi in X]
 
-##############################################################################
-#
 
 plt.figure(); plt.plot(hist)
 plt.xlabel("iteration"); plt.ylabel("BCE loss"); plt.title("Training curve (2-NTCA QNN)"); plt.show()
@@ -660,21 +724,32 @@ FN = sum(int(pi==0 and yi==1) for pi,yi in zip(preds,y))
 print("Confusion matrix (rows=true, cols=pred):")
 print(f"[[TN={TN}, FP={FP}],[FN={FN}, TP={TP}]]   Accuracy={(TP+TN)/len(y):.3f}")
 
-##############################################################################
-#
+
+######################################################################
 # 3. Conclusion
 # -------------
-#
-# In this demo we prepared implementation of **nonlinear transformation of complex amplitudes** (NTCA) using the block-encoding described by Guo *et al.* [#guo2024]_ and the Quantum Singular Value Transformation. We then constructed a small concrete example. We encoded the real part of quantum state amplitudes into the spectrum of a Hermitian operator using four calls to a state preparation oracle and :math:`\mathcal{O}(n)` additional gates. Applying QSVT with phase angles derived from a Chebyshev approximation of the hyperbolic tangent implemented an odd, bounded polynomial activation function. Finally, we demonstrated how to integrate this nonlinear activation into a simple quantum classifier trained on a handful of points.
-#
-# NTCA provides a route to implement nonlinear functions within the otherwise linear framework of quantum mechanics, at the cost of post-selection and increased circuit depth. While our example used a single data qubit and an odd activation, the approach scales to larger registers and general complex functions :math:`P(x)+Q(y)`. Combining NTCA with parameterised circuits opens promising possibilities for quantum machine learning.
-#
+# 
+# In this demo we prepared implementation of **nonlinear transformation of complex amplitudes** (NTCA)
+# using the block‑encoding described by [#nlat]_ and the Quantum Singular Value
+# Transformation. We then constructed a small concrete example. We encoded the real part of quantum
+# state amplitudes into the spectrum of a Hermitian operator using four calls to a state preparation
+# oracle and :math:`\mathcal{O}(n)` additional gates. Applying QSVT with phase angles derived from a
+# Chebyshev approximation of the hyperbolic tangent implemented an odd, bounded polynomial activation
+# function. Finally, we demonstrated how to integrate this nonlinear activation into a simple quantum
+# classifier trained on a handful of points.
+# 
+# NTCA provides a route to implement nonlinear functions within the otherwise linear framework of
+# quantum mechanics, at the cost of post‑selection and increased circuit depth. While our example used
+# a single data qubit and an odd activation, the approach scales to larger registers and general
+# complex functions :math:`P(x)+Q(y)`. Combining NTCA with parameterised circuits opens promising
+# possibilities for quantum machine learning.
+# 
 # References
 # ----------
 #
-# .. [#guo2024]
+# .. [#nlat]
 #
-#     K. Guo, K. Mitarai, and K. Fujii,
+#     Naixu Guo, Kosuke Mitarai, Keisuke Fujii,
 #     "Nonlinear transformation of complex amplitudes via quantum singular value transformation".
-#     `arXiv:2403.02209 (2024) <https://arxiv.org/abs/2403.02209>`__
+#     `Physical Review Research <https://link.aps.org/doi/10.1103/PhysRevResearch.6.043227>`__, 2024
 #

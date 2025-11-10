@@ -16,8 +16,7 @@
     "dateOfPublication": "2025-11-10T00:00:00+00:00",
     "dateOfLastModification": "2025-11-10T00:00:00+00:00",
     "categories": [
-        "Quantum Algorithms",
-        "Quantum Machine Learning"
+        "Quantum Computing"
     ],
     "tags": [
         "QSVT",
@@ -37,21 +36,17 @@
     "doi": "",
     "references": [
         {
-            "id": "guo2024",
+            "id": "nlat",
             "type": "article",
             "title": "Nonlinear transformation of complex amplitudes via quantum singular value transformation",
-            "authors": "K. Guo, K. Mitarai, and K. Fujii",
+            "authors": "Naixu Guo, Kosuke Mitarai, Keisuke Fujii",
             "year": "2024",
-            "journal": "arXiv:2403.02209",
-            "url": "https://arxiv.org/abs/2403.02209"
+            "journal": "Physical Review Research",
+            "url": "https://link.aps.org/doi/10.1103/PhysRevResearch.6.043227"
         }
     ],
     "basedOnPapers": [
-        {
-            "type": "paper",
-            "id": "guo2024",
-            "weight": 1.0
-        }
+        "10.1103/PhysRevResearch.6.043227"
     ],
     "referencedByPapers": [],
     "relatedContent": [
