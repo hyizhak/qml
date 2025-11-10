@@ -1,0 +1,64 @@
+{
+    "title": "Nonlinear Transformation of Complex Amplitudes via Quantum Singular Value Transformation",
+    "authors": [
+        {
+            "username": "Naixu Guo"
+        },
+        {
+            "username": "Po-Wei Huang"
+        },
+        {
+            "username": "Yizhan Han"
+        }
+    ],
+    "executable_stable": true,
+    "executable_latest": true,
+    "dateOfPublication": "2025-11-10T00:00:00+00:00",
+    "dateOfLastModification": "2025-11-10T00:00:00+00:00",
+    "categories": [
+        "Quantum Algorithms",
+        "Quantum Machine Learning"
+    ],
+    "tags": [
+        "QSVT",
+        "Block Encoding",
+        "Quantum Singular Value Transformation",
+        "Quantum Machine Learning",
+        "QNN",
+        "NTCA"
+    ],
+    "previewImages": [
+        {
+            "type": "thumbnail",
+            "uri": "/_static/demo_thumbnails/regular_demo_thumbnails/thumbnail_ntca_qsvt.png"
+        }
+    ],
+    "seoDescription": "Learn how to implement nonlinear functions of quantum amplitudes using Quantum Singular Value Transformation (QSVT) and block-encoding.",
+    "doi": "",
+    "references": [
+        {
+            "id": "guo2024",
+            "type": "article",
+            "title": "Nonlinear transformation of complex amplitudes via quantum singular value transformation",
+            "authors": "K. Guo, K. Mitarai, and K. Fujii",
+            "year": "2024",
+            "journal": "arXiv:2403.02209",
+            "url": "https://arxiv.org/abs/2403.02209"
+        }
+    ],
+    "basedOnPapers": [
+        {
+            "type": "paper",
+            "id": "guo2024",
+            "weight": 1.0
+        }
+    ],
+    "referencedByPapers": [],
+    "relatedContent": [
+        {
+            "type": "demonstration",
+            "id": "tutorial_intro_qsvt",
+            "weight": 1.0
+        }
+    ]
+}
